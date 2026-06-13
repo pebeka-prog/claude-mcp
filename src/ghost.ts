@@ -130,7 +130,6 @@ server.tool(
   {
     title: z.string().describe("Post title"),
     html: z.string().optional().describe("Post body as HTML"),
-    lexical: z.string().optional().describe("Post body as Lexical JSON (takes priority over html)"),
     status: z
       .enum(["draft", "published", "scheduled"])
       .optional()
@@ -141,10 +140,9 @@ server.tool(
       .optional()
       .describe("ISO 8601 datetime — required when status is 'scheduled'"),
   },
-  async ({ title, html, lexical, status, tags, published_at }) => {
+  async ({ title, html, status, tags, published_at }) => {
     const post: Record<string, unknown> = { title, status };
-    if (lexical) post.lexical = lexical;
-    else if (html) post.html = html;
+    if (html) post.html = html;
     if (tags) post.tags = tags.map((name) => ({ name }));
     if (published_at) post.published_at = published_at;
 
@@ -170,16 +168,14 @@ server.tool(
       ),
     title: z.string().optional(),
     html: z.string().optional(),
-    lexical: z.string().optional(),
     status: z.enum(["draft", "published", "scheduled"]).optional(),
     tags: z.array(z.string()).optional(),
     published_at: z.string().optional(),
   },
-  async ({ id, updated_at, title, html, lexical, status, tags, published_at }) => {
+  async ({ id, updated_at, title, html, status, tags, published_at }) => {
     const post: Record<string, unknown> = { updated_at };
     if (title) post.title = title;
-    if (lexical) post.lexical = lexical;
-    else if (html) post.html = html;
+    if (html) post.html = html;
     if (status) post.status = status;
     if (tags) post.tags = tags.map((name) => ({ name }));
     if (published_at) post.published_at = published_at;
@@ -330,9 +326,9 @@ server.tool(
 async function main() {
   assertConfig();
 
-  // Quick auth smoke-test: /users/me/ requires a valid JWT
+  // Quick auth smoke-test: /site/ works with integration keys (no user context needed)
   try {
-    await ghostFetch("/users/me/");
+    await ghostFetch("/site/");
     console.error("[ghost-mcp] Auth OK — connected to", GHOST_URL);
   } catch (err) {
     console.error("[ghost-mcp] Auth FAILED:", (err as Error).message);
