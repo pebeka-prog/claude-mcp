@@ -380,24 +380,43 @@ server.tool(
 
     const promptUsed = buildVisualPrompt(big_idea, title, mood);
 
+    // gpt-image-2 returns base64 only (no URL output, no response_format param)
     const response = await openai.images.generate({
-      model: "dall-e-3",
+      model: "gpt-image-2",
       prompt: promptUsed,
       n: 1,
-      size: "1792x1024",
-      quality: "standard",
-      style: "natural",
+      size: "1536x1024",
+      quality: "medium",
     });
 
-    const image = response.data?.[0];
-    const imageUrl = image?.url ?? "";
-    const revisedPrompt = image?.revised_prompt ?? promptUsed;
+    const b64 = response.data?.[0]?.b64_json;
+    if (!b64) throw new Error("gpt-image-2 returned no image data");
+
+    // Upload directly to Ghost — returns a permanent CDN URL usable as feature_image
+    const imageBuffer = Buffer.from(b64, "base64");
+    const formData = new FormData();
+    formData.append("file", new Blob([imageBuffer], { type: "image/png" }), "generated.png");
+    formData.append("purpose", "image");
+
+    const uploadRes = await fetch(`${base()}/images/upload/`, {
+      method: "POST",
+      headers: { Authorization: `Ghost ${makeAdminJwt()}`, "Accept-Version": "v5.0" },
+      body: formData,
+    });
+
+    if (!uploadRes.ok) {
+      const err = await uploadRes.text();
+      throw new Error(`Ghost image upload failed ${uploadRes.status}: ${err}`);
+    }
+
+    const uploadData = (await uploadRes.json()) as { images: Array<{ url: string }> };
+    const ghostUrl = uploadData.images?.[0]?.url ?? "";
 
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify({ url: imageUrl, prompt_used: promptUsed, revised_prompt: revisedPrompt }, null, 2),
+          text: JSON.stringify({ url: ghostUrl, prompt_used: promptUsed }, null, 2),
         },
       ],
     };
