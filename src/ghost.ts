@@ -329,31 +329,37 @@ server.tool(
 // ── Image generation ───────────────────────────────────────────────────────────
 
 /**
- * Maps a Big Idea + optional mood into an abstract visual prompt for DALL-E 3.
- * Rules: no faces, no text, no recognisable people.
- * Palette: deep teal, indigo, charcoal, silver.
- * Atmosphere: tension between weight and lightness, shadow and light.
- * Somatic anchors: body, water, stone, mist, filtered light.
+ * Translates a Big Idea into an abstract visual prompt.
+ *
+ * Rules:
+ * - Never derive from the title — derive from the emotional mechanic of the Big Idea.
+ * - No recognisable objects, no faces, no text, no human figures.
+ * - Describe forces and tensions, not things: something pressing down,
+ *   something seeking to rise, diffuse light under an opaque surface.
+ * - Background: deep teal or indigo — never pure black.
+ * - Photographic or painterly quality — quiet, precise, non-illustrative.
  */
-function buildVisualPrompt(bigIdea: string, title: string, mood?: string): string {
-  const moodHints: Record<string, string> = {
-    dark:    "Deep shadows dominate. Rich charcoal and dark indigo. Minimal light sources.",
-    light:   "Soft diffused brightness. Silver tones, near-white fog, gentle luminosity.",
-    liminal: "Between states — neither day nor night, neither solid nor dissolved. Threshold quality.",
-    somatic: "Emphasis on texture and physical sensation — stone, skin, water, breath made visible.",
+function buildVisualPrompt(bigIdea: string, mood?: string): string {
+  const moodAdjustments: Record<string, string> = {
+    dark:    "Increase weight and opacity. The light source is barely perceptible.",
+    light:   "The upward force is stronger. Diffuse brightness bleeds through more of the surface.",
+    liminal: "Equal tension between descent and ascent. The surface itself is ambiguous — neither solid nor liquid.",
+    somatic: "Emphasise texture: the pressure is felt as much as seen. Grain, density, breath.",
   };
 
-  const moodClause = mood && moodHints[mood] ? ` ${moodHints[mood]}` : "";
+  const moodClause = mood && moodAdjustments[mood] ? ` ${moodAdjustments[mood]}` : "";
 
   return (
-    `Abstract contemplative photograph or painting inspired by: "${bigIdea}". ` +
-    `Post title context: "${title}". ` +
-    `No faces, no text, no recognisable human figures. ` +
-    `Deep teal, indigo, charcoal, and silver palette. ` +
-    `Atmosphere of tension between weight and lightness, shadow and emerging light. ` +
-    `Somatic anchors: still water, stone surfaces, filtered light, mist, breath.` +
-    moodClause +
-    ` Photographic or painterly quality — quiet, precise, emotionally resonant.`
+    `Abstract fine art photograph or painting. ` +
+    `Emotional mechanic to render visually: "${bigIdea}". ` +
+    `Do not illustrate the words — translate the underlying force into pure visual form. ` +
+    `Show opposing forces: weight pressing downward, something diffuse seeking to rise. ` +
+    `A soft light source exists beneath or behind an opaque, dense surface — ` +
+    `it does not break through, but its presence is felt as pressure and glow. ` +
+    `Deep teal or indigo background — not pure black. Rich, atmospheric darkness with depth. ` +
+    `No recognisable objects, no human figures, no faces, no text, no symbolic icons. ` +
+    `Photographic grain or painterly texture. Quiet, precise, non-illustrative.` +
+    moodClause
   );
 }
 
@@ -378,7 +384,7 @@ server.tool(
       throw new Error("OPENAI_API_KEY is not set in environment");
     }
 
-    const promptUsed = buildVisualPrompt(big_idea, title, mood);
+    const promptUsed = buildVisualPrompt(big_idea, mood);
 
     // gpt-image-2 returns base64 only (no URL output, no response_format param)
     const response = await openai.images.generate({
