@@ -1,0 +1,36 @@
+{
+  "name": "ghost-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for Ghost CMS Admin API",
+  "main": "dist/ghost.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/ghost.ts",
+    "start": "node dist/ghost.js",
+    "test:auth": "tsx src/ghost.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pebeka-prog/claude-mcp.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/pebeka-prog/claude-mcp/issues"
+  },
+  "homepage": "https://github.com/pebeka-prog/claude-mcp#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "dotenv": "^17.4.2",
+    "jsonwebtoken": "^9.0.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^25.9.3",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}
