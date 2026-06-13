@@ -2,12 +2,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import jwt from "jsonwebtoken";
+import OpenAI from "openai";
 import "dotenv/config";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 const GHOST_URL = process.env.GHOST_URL ?? "";
 const GHOST_ADMIN_KEY = process.env.GHOST_ADMIN_KEY ?? ""; // format: id:secret
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "";
 
 function assertConfig() {
   if (!GHOST_URL) throw new Error("GHOST_URL is required in environment");
@@ -15,7 +17,10 @@ function assertConfig() {
     throw new Error(
       "GHOST_ADMIN_KEY must be set in format 'id:secret' (Staff Access Token from Ghost Admin → Integrations)"
     );
+  // OPENAI_API_KEY is optional at boot — generate_post_image will throw at call time if absent
 }
+
+const openai = new OpenAI({ apiKey: OPENAI_API_KEY || "unset" });
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 // Ghost Admin API uses HS256 JWT signed with the hex-decoded secret part of
@@ -317,6 +322,84 @@ server.tool(
     const data = await ghostFetch("/site/");
     return {
       content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+    };
+  }
+);
+
+// ── Image generation ───────────────────────────────────────────────────────────
+
+/**
+ * Maps a Big Idea + optional mood into an abstract visual prompt for DALL-E 3.
+ * Rules: no faces, no text, no recognisable people.
+ * Palette: deep teal, indigo, charcoal, silver.
+ * Atmosphere: tension between weight and lightness, shadow and light.
+ * Somatic anchors: body, water, stone, mist, filtered light.
+ */
+function buildVisualPrompt(bigIdea: string, title: string, mood?: string): string {
+  const moodHints: Record<string, string> = {
+    dark:    "Deep shadows dominate. Rich charcoal and dark indigo. Minimal light sources.",
+    light:   "Soft diffused brightness. Silver tones, near-white fog, gentle luminosity.",
+    liminal: "Between states — neither day nor night, neither solid nor dissolved. Threshold quality.",
+    somatic: "Emphasis on texture and physical sensation — stone, skin, water, breath made visible.",
+  };
+
+  const moodClause = mood && moodHints[mood] ? ` ${moodHints[mood]}` : "";
+
+  return (
+    `Abstract contemplative photograph or painting inspired by: "${bigIdea}". ` +
+    `Post title context: "${title}". ` +
+    `No faces, no text, no recognisable human figures. ` +
+    `Deep teal, indigo, charcoal, and silver palette. ` +
+    `Atmosphere of tension between weight and lightness, shadow and emerging light. ` +
+    `Somatic anchors: still water, stone surfaces, filtered light, mist, breath.` +
+    moodClause +
+    ` Photographic or painterly quality — quiet, precise, emotionally resonant.`
+  );
+}
+
+server.tool(
+  "generate_post_image",
+  "Generate an abstract contemplative feature image for a Ghost post using DALL-E 3",
+  {
+    big_idea: z.string().describe("The core idea of the post (1 sentence)"),
+    title: z.string().describe("The post title or subject line"),
+    mood: z
+      .enum(["dark", "light", "liminal", "somatic"])
+      .optional()
+      .describe("Optional mood override for the visual palette"),
+  },
+  {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+  },
+  async ({ big_idea, title, mood }) => {
+    if (!OPENAI_API_KEY) {
+      throw new Error("OPENAI_API_KEY is not set in environment");
+    }
+
+    const promptUsed = buildVisualPrompt(big_idea, title, mood);
+
+    const response = await openai.images.generate({
+      model: "dall-e-3",
+      prompt: promptUsed,
+      n: 1,
+      size: "1792x1024",
+      quality: "standard",
+      style: "natural",
+    });
+
+    const image = response.data?.[0];
+    const imageUrl = image?.url ?? "";
+    const revisedPrompt = image?.revised_prompt ?? promptUsed;
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({ url: imageUrl, prompt_used: promptUsed, revised_prompt: revisedPrompt }, null, 2),
+        },
+      ],
     };
   }
 );
