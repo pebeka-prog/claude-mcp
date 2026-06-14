@@ -2,14 +2,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import jwt from "jsonwebtoken";
-import OpenAI from "openai";
 import "dotenv/config";
+// @fal-ai/client is imported dynamically inside generate_post_image to ensure
+// our dotenv values are in process.env before dotenvx (bundled with fal) can intercept.
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 const GHOST_URL = process.env.GHOST_URL ?? "";
 const GHOST_ADMIN_KEY = process.env.GHOST_ADMIN_KEY ?? ""; // format: id:secret
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "";
+const FAL_KEY = process.env.FAL_KEY ?? "";
 
 function assertConfig() {
   if (!GHOST_URL) throw new Error("GHOST_URL is required in environment");
@@ -17,10 +18,7 @@ function assertConfig() {
     throw new Error(
       "GHOST_ADMIN_KEY must be set in format 'id:secret' (Staff Access Token from Ghost Admin → Integrations)"
     );
-  // OPENAI_API_KEY is optional at boot — generate_post_image will throw at call time if absent
 }
-
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY || "unset" });
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 // Ghost Admin API uses HS256 JWT signed with the hex-decoded secret part of
@@ -365,64 +363,47 @@ function buildVisualPrompt(bigIdea: string, mood?: string): string {
 
 server.tool(
   "generate_post_image",
-  "Generate an abstract contemplative feature image for a Ghost post using DALL-E 3",
+  "Generate an abstract contemplative feature image for a Ghost post using Flux Pro (fal.ai)",
   {
     big_idea: z.string().describe("The core idea of the post (1 sentence)"),
-    title: z.string().describe("The post title or subject line"),
+    title: z.string().describe("The post title or subject line (used for context only, not injected into the visual prompt)"),
     mood: z
       .enum(["dark", "light", "liminal", "somatic"])
       .optional()
-      .describe("Optional mood override for the visual palette"),
+      .describe("Optional mood override for the visual atmosphere"),
   },
   {
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
   },
-  async ({ big_idea, title, mood }) => {
-    if (!OPENAI_API_KEY) {
-      throw new Error("OPENAI_API_KEY is not set in environment");
-    }
-
+  async ({ big_idea, mood }) => {
+    if (!FAL_KEY) throw new Error("FAL_KEY is not set in environment");
+    const { fal } = await import("@fal-ai/client");
+    fal.config({ credentials: FAL_KEY });
     const promptUsed = buildVisualPrompt(big_idea, mood);
 
-    // gpt-image-2 returns base64 only (no URL output, no response_format param)
-    const response = await openai.images.generate({
-      model: "gpt-image-2",
-      prompt: promptUsed,
-      n: 1,
-      size: "1536x1024",
-      quality: "medium",
+    type FluxOutput = { images: Array<{ url: string }> };
+    const result = await fal.subscribe("fal-ai/flux-pro", {
+      input: {
+        prompt: promptUsed,
+        image_size: "landscape_16_9",
+        num_inference_steps: 28,
+        guidance_scale: 3.5,
+        num_images: 1,
+        safety_tolerance: "2",
+        output_format: "jpeg",
+      },
     });
 
-    const b64 = response.data?.[0]?.b64_json;
-    if (!b64) throw new Error("gpt-image-2 returned no image data");
-
-    // Upload directly to Ghost — returns a permanent CDN URL usable as feature_image
-    const imageBuffer = Buffer.from(b64, "base64");
-    const formData = new FormData();
-    formData.append("file", new Blob([imageBuffer], { type: "image/png" }), "generated.png");
-    formData.append("purpose", "image");
-
-    const uploadRes = await fetch(`${base()}/images/upload/`, {
-      method: "POST",
-      headers: { Authorization: `Ghost ${makeAdminJwt()}`, "Accept-Version": "v5.0" },
-      body: formData,
-    });
-
-    if (!uploadRes.ok) {
-      const err = await uploadRes.text();
-      throw new Error(`Ghost image upload failed ${uploadRes.status}: ${err}`);
-    }
-
-    const uploadData = (await uploadRes.json()) as { images: Array<{ url: string }> };
-    const ghostUrl = uploadData.images?.[0]?.url ?? "";
+    const imageUrl = (result.data as FluxOutput).images?.[0]?.url ?? "";
+    if (!imageUrl) throw new Error("fal.ai Flux Pro returned no image URL");
 
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify({ url: ghostUrl, prompt_used: promptUsed }, null, 2),
+          text: JSON.stringify({ url: imageUrl, prompt_used: promptUsed }, null, 2),
         },
       ],
     };
